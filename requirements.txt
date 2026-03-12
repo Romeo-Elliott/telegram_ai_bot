@@ -1,5 +1,5 @@
-python-telegram-bot==21.3
-anthropic
-ccxt
+python-telegram-bot==20.7
+anthropic==0.40.0
+ccxt==4.3.89
 requests
 python-dotenv
