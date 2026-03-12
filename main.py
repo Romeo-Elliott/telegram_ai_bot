@@ -1,5 +1,7 @@
 import asyncio
 import os
+import telegram
+telegram.constants = telegram.constants
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import anthropic
