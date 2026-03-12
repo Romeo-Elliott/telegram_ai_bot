@@ -41,11 +41,11 @@ def analyze_signal(symbol: str) -> str:
     except Exception as e:
         return f"Error: {e}"
 
-def run_agent(user_id: int, user_message: str) -> str:
+async def run_agent(user_id: int, user_message: str) -> str:
     if user_id not in conversation_history:
         conversation_history[user_id] = []
     conversation_history[user_id].append({"role": "user", "content": user_message})
-    
+
     tools = [
         {
             "name": "get_crypto_price",
@@ -66,26 +66,27 @@ def run_agent(user_id: int, user_message: str) -> str:
             }
         }
     ]
-    
+
     messages = conversation_history[user_id].copy()
-    
+
     while True:
-        response = client.messages.create(
+        response = await asyncio.to_thread(
+            client.messages.create,
             model="claude-sonnet-4-20250514",
             max_tokens=1000,
-            system="You are a crypto trading assistant. Reply in Myanmar language if user writes in Myanmar.",
+            system="You are a crypto trading assistant. Reply in Myanmar language if user writes in Myanmar. For general questions not related to crypto, still answer helpfully in Myanmar language.",
             tools=tools,
             messages=messages
         )
-        
+
         if response.stop_reason == "tool_use":
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use":
                     if block.name == "get_crypto_price":
-                        result = get_crypto_price(block.input["symbol"])
+                        result = await asyncio.to_thread(get_crypto_price, block.input["symbol"])
                     elif block.name == "analyze_signal":
-                        result = analyze_signal(block.input["symbol"])
+                        result = await asyncio.to_thread(analyze_signal, block.input["symbol"])
                     else:
                         result = "Tool not found"
                     tool_results.append({
@@ -111,7 +112,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/price BTC - Price ကြည့်\n"
         "/signal ETH - Trading signal\n"
         "/clear - History ဖျက်\n\n"
-        "သို့မဟုတ် တိုက်ရိုက် မေးလိုက်ပါ! 😊"
+        "သို့မဟုတ် ဘာမဆို တိုက်ရိုက် မေးလိုက်ပါ! 😊"
     )
 
 async def price_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -132,7 +133,7 @@ async def clear_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    response = run_agent(update.effective_user.id, update.message.text)
+    response = await run_agent(update.effective_user.id, update.message.text)
     await update.message.reply_text(response)
 
 def main():
