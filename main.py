@@ -6,7 +6,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 import ccxt
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 conversation_history = {}
 
@@ -38,16 +38,16 @@ def analyze_signal(symbol: str) -> str:
     except Exception as e:
         return f"Error: {e}"
 
-def call_openrouter(messages: list) -> str:
+def call_groq(messages: list) -> str:
     try:
         response = requests.post(
-            url="https://openrouter.ai/api/v1/chat/completions",
+            url="https://api.groq.com/openai/v1/chat/completions",
             headers={
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Authorization": f"Bearer {GROQ_API_KEY}",
                 "Content-Type": "application/json"
             },
             json={
-                "model": "meta-llama/llama-3.3-70b-instruct:free",
+                "model": "llama-3.3-70b-versatile",
                 "messages": messages,
                 "max_tokens": 1000
             },
@@ -79,19 +79,19 @@ async def run_agent(user_id: int, user_message: str) -> str:
         if user_id not in conversation_history:
             conversation_history[user_id] = []
 
-        system_msg = {
-            "role": "system",
-            "content": "You are a crypto trading assistant. Reply in Myanmar language if user writes in Myanmar. For general questions not related to crypto, still answer helpfully in Myanmar language."
-        }
-
         conversation_history[user_id].append({
             "role": "user",
             "content": user_message + extra_context
         })
 
+        system_msg = {
+            "role": "system",
+            "content": "You are a crypto trading assistant. Reply in Myanmar language if user writes in Myanmar. For general questions not related to crypto, still answer helpfully in Myanmar language."
+        }
+
         messages = [system_msg] + conversation_history[user_id][-20:]
 
-        response_text = await asyncio.to_thread(call_openrouter, messages)
+        response_text = await asyncio.to_thread(call_groq, messages)
 
         conversation_history[user_id].append({
             "role": "assistant",
