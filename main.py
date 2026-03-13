@@ -1,16 +1,19 @@
 import asyncio
 import os
-import telegram
-telegram.constants = telegram.constants
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import anthropic
+import google.generativeai as genai
 import ccxt
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel(
+    model_name="gemini-1.5-flash",
+    system_instruction="You are a crypto trading assistant. Reply in Myanmar language if user writes in Myanmar. For general questions not related to crypto, still answer helpfully in Myanmar language."
+)
+
 conversation_history = {}
 
 def get_crypto_price(symbol: str) -> str:
@@ -42,69 +45,38 @@ def analyze_signal(symbol: str) -> str:
         return f"Error: {e}"
 
 async def run_agent(user_id: int, user_message: str) -> str:
-    if user_id not in conversation_history:
-        conversation_history[user_id] = []
-    conversation_history[user_id].append({"role": "user", "content": user_message})
+    try:
+        msg_lower = user_message.lower()
 
-    tools = [
-        {
-            "name": "get_crypto_price",
-            "description": "Get current crypto price",
-            "input_schema": {
-                "type": "object",
-                "properties": {"symbol": {"type": "string"}},
-                "required": ["symbol"]
-            }
-        },
-        {
-            "name": "analyze_signal",
-            "description": "Analyze trading signal",
-            "input_schema": {
-                "type": "object",
-                "properties": {"symbol": {"type": "string"}},
-                "required": ["symbol"]
-            }
-        }
-    ]
+        crypto_symbols = ["btc", "eth", "sol", "bnb", "xrp", "doge", "ada", "avax", "link", "dot", "bitcoin", "ethereum"]
+        detected_symbol = None
+        for sym in crypto_symbols:
+            if sym in msg_lower:
+                detected_symbol = sym.replace("bitcoin", "btc").replace("ethereum", "eth")
+                break
 
-    messages = conversation_history[user_id].copy()
+        extra_context = ""
+        if detected_symbol:
+            if any(w in msg_lower for w in ["signal", "analysis", "analyze", "trend", "သုံးသပ်"]):
+                extra_context = f"\n[Real-time data: {analyze_signal(detected_symbol)}]"
+            else:
+                extra_context = f"\n[Real-time data: {get_crypto_price(detected_symbol)}]"
 
-    while True:
+        if user_id not in conversation_history:
+            conversation_history[user_id] = []
+
+        chat = model.start_chat(history=conversation_history[user_id])
         response = await asyncio.to_thread(
-            client.messages.create,
-            model="claude-sonnet-4-20250514",
-            max_tokens=1000,
-            system="You are a crypto trading assistant. Reply in Myanmar language if user writes in Myanmar. For general questions not related to crypto, still answer helpfully in Myanmar language.",
-            tools=tools,
-            messages=messages
+            chat.send_message,
+            user_message + extra_context
         )
 
-        if response.stop_reason == "tool_use":
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    if block.name == "get_crypto_price":
-                        result = await asyncio.to_thread(get_crypto_price, block.input["symbol"])
-                    elif block.name == "analyze_signal":
-                        result = await asyncio.to_thread(analyze_signal, block.input["symbol"])
-                    else:
-                        result = "Tool not found"
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result
-                    })
-            messages.append({"role": "assistant", "content": response.content})
-            messages.append({"role": "user", "content": tool_results})
-        else:
-            final_text = ""
-            for block in response.content:
-                if hasattr(block, "text"):
-                    final_text += block.text
-            conversation_history[user_id].append({"role": "assistant", "content": final_text})
-            if len(conversation_history[user_id]) > 20:
-                conversation_history[user_id] = conversation_history[user_id][-20:]
-            return final_text
+        conversation_history[user_id] = chat.history[-20:]
+
+        return response.text
+
+    except Exception as e:
+        return f"Error: {e}"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -112,7 +84,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/price BTC - Price ကြည့်\n"
         "/signal ETH - Trading signal\n"
         "/clear - History ဖျက်\n\n"
-        "သို့မဟုတ် ဘာမဆို တိုက်ရိုက် မေးလိုက်ပါ! 😊"
+        "ဘာမဆို တိုက်ရိုက် မေးလိုက်ပါ! 😊"
     )
 
 async def price_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
