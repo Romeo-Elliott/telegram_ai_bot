@@ -1,18 +1,12 @@
 import asyncio
 import os
+import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import google.generativeai as genai
 import ccxt
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel(
-    model_name="gemini-2.0-flash",
-    system_instruction="You are a crypto trading assistant. Reply in Myanmar language if user writes in Myanmar. For general questions not related to crypto, still answer helpfully in Myanmar language."
-)
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 
 conversation_history = {}
 
@@ -44,11 +38,31 @@ def analyze_signal(symbol: str) -> str:
     except Exception as e:
         return f"Error: {e}"
 
+def call_openrouter(messages: list) -> str:
+    try:
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "meta-llama/llama-3.3-70b-instruct:free",
+                "messages": messages,
+                "max_tokens": 1000
+            },
+            timeout=30
+        )
+        data = response.json()
+        return data["choices"][0]["message"]["content"]
+    except Exception as e:
+        return f"Error: {e}"
+
 async def run_agent(user_id: int, user_message: str) -> str:
     try:
         msg_lower = user_message.lower()
 
-        crypto_symbols = ["btc", "eth", "sol", "bnb", "xrp", "doge", "ada", "avax", "link", "dot", "bitcoin", "ethereum"]
+        crypto_symbols = ["btc", "eth", "sol", "bnb", "xrp", "doge", "ada", "avax", "link", "dot", "ton", "bitcoin", "ethereum"]
         detected_symbol = None
         for sym in crypto_symbols:
             if sym in msg_lower:
@@ -65,15 +79,29 @@ async def run_agent(user_id: int, user_message: str) -> str:
         if user_id not in conversation_history:
             conversation_history[user_id] = []
 
-        chat = model.start_chat(history=conversation_history[user_id])
-        response = await asyncio.to_thread(
-            chat.send_message,
-            user_message + extra_context
-        )
+        system_msg = {
+            "role": "system",
+            "content": "You are a crypto trading assistant. Reply in Myanmar language if user writes in Myanmar. For general questions not related to crypto, still answer helpfully in Myanmar language."
+        }
 
-        conversation_history[user_id] = chat.history[-20:]
+        conversation_history[user_id].append({
+            "role": "user",
+            "content": user_message + extra_context
+        })
 
-        return response.text
+        messages = [system_msg] + conversation_history[user_id][-20:]
+
+        response_text = await asyncio.to_thread(call_openrouter, messages)
+
+        conversation_history[user_id].append({
+            "role": "assistant",
+            "content": response_text
+        })
+
+        if len(conversation_history[user_id]) > 20:
+            conversation_history[user_id] = conversation_history[user_id][-20:]
+
+        return response_text
 
     except Exception as e:
         return f"Error: {e}"
