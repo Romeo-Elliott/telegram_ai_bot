@@ -10,7 +10,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel(
-    model_name="gemini-1.5-flash",
+    model_name="gemini-2.0-flash",
     system_instruction="You are a crypto trading assistant. Reply in Myanmar language if user writes in Myanmar. For general questions not related to crypto, still answer helpfully in Myanmar language."
 )
 
